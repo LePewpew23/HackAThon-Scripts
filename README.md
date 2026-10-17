@@ -1,54 +1,57 @@
-# HPCC4 Blue Team Linux Toolkit (starter)
+# HPCC4 Team 21 Blue Team toolkit
 
-**Use only on authorized competition machines.** This toolkit was written from the described Horse Plinko environment, not tested against the competition images. Review actual rules, port list and scoring first. No script guarantees scoring compatibility.
+## Verified addressing from supplied competition format (confirm against packet)
+- guidance: `172.16.21.10` — Ubuntu 22.04; SSH and PlinkCom HTTP
+- ignition: `172.16.21.20` — Fedora Server 38; SSH and OpenWebUI HTTP
+- assembly: `172.16.21.30` — Windows Server 2022; RDP and Jenkins (8080)
+- manifest: `172.16.21.40` — Windows Server 2019; RDP and MariaDB
+- blackbox: `172.16.21.5` — Linux Mint 22, out-of-scope SIEM/backups
 
-## Machines
-- `guidance` Ubuntu 22.04: SSH + HTTP PlinkCom
-- `ignition` Fedora 38: SSH + HTTP OpenWebUI (could be container/reverse-proxy)
-- `blackbox` Linux Mint: SIEM and backup target
-- Windows nodes need separate PowerShell tooling.
+**Important:** IPs use the guide's `t=21` convention; actual ports and scorer source addresses need live verification. No supplied source identifies a fixed scoring engine IP.
 
-## First run
+## Linux quick start
+On guidance or ignition, from `Linux/`:
 ```bash
 chmod +x *.sh
 sudo ./baseline.sh
 sudo ./persistence-audit.sh
 sudo ./backup.sh
-./service-check.sh http://127.0.0.1/ # only if HTTP root should answer 200
-```
-Reports live under `/root/hpcc-reports`; backups under `/root/hpcc-backups`. These directories contain security-sensitive data. Baseline reports are not evidence of a clean environment; collect before and after hardening and inspect differences.
-
-## Backup transfer (after making remote folder)
-```bash
-# on blackbox: mkdir -m 700 -p ~/hpcc-backups
-sudo BLACKBOX_HOST=172.16.T.5 BLACKBOX_USER=jmoney ./backup.sh --to-blackbox
-```
-Replace T with team number. `scp` uses an interactive authentication method; verify stored archives on blackbox with `sha256sum -c`. Never blindly restore an entire `/etc` archive; extract only the required file with the correct ownership, permissions, and service-specific validation. Test restoration safely. Database, OpenWebUI volumes, and other application-specific state require independent backups.
-
-## Credential rotation
-```bash
+# After verifying blackbox SSH host key and backup account:
+sudo BLACKBOX_USER=jmoney ./backup.sh --to-blackbox
 sudo ./passwords.sh plinktern
-sudo ./passwords.sh jmoney
+sudo ./passwords.sh jmoney  # update NEIGH immediately
+sudo ./service-watchdog.sh --check
+sudo ./egress-audit.sh
 ```
-Change password only after coordinating with teammates. **Immediately update `jmoney` in NEIGH** and verify scored login. Script uses interactive `passwd` and never logs passwords.
+Use `firewall-ubuntu.sh --preview` on guidance and `firewall-fedora.sh --preview` on ignition. `--apply` requires confirmation. Firewall rules are NOT guaranteed safe without confirming scoring IP reachability and actual service ports. `ssh-harden.sh` is a manual-review helper, not blind access control.
 
-## SSH
-`ssh-harden.sh` backs up and audits sshd settings. It intentionally **does not** edit config or restart SSH. Run `sshd -t`, verify second login session, then reload only after review.
-
-## Firewall
-Run `--preview` first. Ubuntu: `firewall-ubuntu.sh --apply` adds 22/tcp + 80/tcp and default-deny incoming to UFW (existing rules preserved). Fedora: `firewall-fedora.sh --apply` adds SSH+HTTP rules to the runtime default zone only. **Both need verification of scoring sources, actual service ports, active zone, Docker interfaces, app dependencies and console recovery before apply.** Firewall changes can lock out even if simple. No unconditional port reset, reboot, or egress blocking.
-
-## HTTP service check
-```bash
-./service-check.sh http://127.0.0.1/ 'expected visible text'
+## Windows quick start
+In elevated PowerShell on assembly/manifest:
+```powershell
+.\Baseline.ps1
+.\Persistence-Audit.ps1
+.\Backup.ps1
+.\Rotate-Password.ps1 -User plinktern
+.\Rotate-Password.ps1 -User jmoney  # update NEIGH immediately
+.\Firewall-Preview.ps1
+.\Service-Watchdog.ps1
+.\Egress-Audit.ps1
 ```
-Adjust URL and expected content to match **actual** scored application. Authenticated apps may return redirects/login pages or non-200 codes: do not mistake this for complete scoring verification. Also check NEIGH and remote connectivity.
+Depending on script execution policy, signed scripts or an approved administrative execution method may be needed. Do not weaken machine policy casually.
 
-## Diff reports
-```bash
-./changes-diff.sh /root/hpcc-reports/old.txt /root/hpcc-reports/new.txt
-```
-Timestamps and volatile process/network data generate noise; focus on new accounts, jobs, listeners, changes to SSH and services.
+## Deliberate safety decisions
+- Audits are read-only; no account or file deletion.
+- No automatic killing of `nc`, `socat`, system processes, or mass-clearing `/tmp` (these can be legitimate or destroy evidence).
+- No default-deny egress automation until DNS, package updates, blackbox connectivity, scoring, and application dependencies are documented. `egress-audit.sh` and `Egress-Audit.ps1` create inputs for that controlled policy.
+- Watchdogs check, but do not auto-restart, because the service manager, dependencies, and actual health endpoints can vary. Add reviewed restart rules only after practice-box validation.
+- Password rotation uses secure interactive prompts, does not print passwords or log plaintext, and requires NEIGH update for jmoney. App accounts often require app-specific API/config actions and should not be rotated by Linux `passwd`.
+- Linux backups include potentially sensitive configuration and user lists, and must be protected. Shadow hashes and live DB dumps are excluded; do app-specific authenticated exports separately. `mysqldump` from Linux is not applicable to the guide's Windows-hosted MariaDB unless there is a supported access path.
+- Windows backups are inventories, not consistent Jenkins or MariaDB backups.
+- Verify all scripts on practice VMs, and maintain console access before making any live change.
 
-## Deliberately excluded
-No mass user password rotation, automatic disabling/deletion, service killing, `chattr +i`, SELinux disabling, broad package installation, direct iptables flush, or automated reboots. No automated restorations/watchdog that might hide a compromise or destroy evidence.
+## Installers and account review (Team 21 update)
+The installers only copy scripts and do not harden, alter accounts, or install system packages.
+- Linux: from `Linux/`, run `bash install.sh` (default destination `~/hpcc21-linux`), then `sudo ./user-hardening.sh` to audit. To lock a *reviewed* nonessential user, `sudo ./user-hardening.sh --lock username` (interactive confirmation). Password locking alone does not block SSH keys.
+- Windows: from `Windows/`, run `./Install.ps1` (default destination `~/HPCC21-Windows`), then `./User-Hardening.ps1` for audit. To disable an approved unexpected user, `./User-Hardening.ps1 -DisableUser username` (interactive confirmation). Run with appropriate administrative permissions.
+- Never disable `jmoney` or `plinktern`; check official scoring and service accounts first. Windows built-in Guest is reserved for manual review.
+- Verify scripts on a practice host. Do not pipe remote installers to a shell.
